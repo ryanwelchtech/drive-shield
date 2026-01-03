@@ -906,4 +906,3 @@ export default function Dashboard({ onBack }) {
   )
 }
 
-export default Dashboard
