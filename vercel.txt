@@ -1,0 +1,14 @@
+# Vercel Deployment Configuration
+# https://vercel.com/docs/concepts/projects/overview
+
+# Framework preset (Vite will auto-detect)
+FRAMEWORK="vite"
+
+# Build command
+# npm run build (already configured in package.json)
+
+# Output directory
+# dist (Vite's default output)
+
+# Install command
+# npm install (default)

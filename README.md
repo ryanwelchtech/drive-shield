@@ -5,11 +5,12 @@ Autonomous vehicle threat detection platform. Real-time sensor monitoring, adver
 ![React](https://img.shields.io/badge/React-18.2-61DAFB?style=flat-square&logo=react)
 ![Vite](https://img.shields.io/badge/Vite-5.0-646CFF?style=flat-square&logo=vite)
 ![TailwindCSS](https://img.shields.io/badge/Tailwind-3.4-06B6D4?style=flat-square&logo=tailwindcss)
+![Vercel](https://img.shields.io/badge/Deployment-Vercel-black?style=flat-square&logo=vercel)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 
 ## Live Demo
 
-🔗 **[View Live Demo](https://ryanwelchtech.github.io/drive-shield/)**
+:link: **[View Live Demo on Vercel](https://drive-shield.vercel.app)**
 
 ## Features
 
@@ -38,7 +39,7 @@ Autonomous vehicle threat detection platform. Real-time sensor monitoring, adver
 
 ```mermaid
 graph TB
-    subgraph Frontend
+    subgraph Frontend [Vercel]
         Landing[Landing Page]
         Dashboard[Monitoring Dashboard]
 
@@ -50,8 +51,17 @@ graph TB
         end
     end
 
+    subgraph API [Vercel Serverless]
+        SensorsAPI[/api/sensors-status]
+        DetectionsAPI[/api/detections]
+        LidarAPI[/api/lidar-points]
+        ThreatAPI[/api/threat-analyze]
+        SummaryAPI[/api/threats-summary]
+    end
+
     Landing --> Dashboard
     Dashboard --> Visualizations
+    Dashboard --> API
 ```
 
 ## Tech Stack
@@ -64,7 +74,7 @@ graph TB
 | Animations | Framer Motion |
 | Charts | Recharts |
 | Visualization | Canvas API |
-| Deployment | GitHub Pages |
+| Deployment | Vercel (Frontend + Serverless Functions) |
 
 ## Quick Start
 
@@ -81,6 +91,37 @@ npm run dev
 
 # Build for production
 npm run build
+
+# Preview production build
+npm run preview
+```
+
+## Deployment to Vercel
+
+### Option 1: Vercel CLI
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy
+vercel
+```
+
+### Option 2: Git Integration
+
+1. Push to GitHub
+2. Import project in Vercel
+3. Vercel auto-detects Vite configuration
+4. Deploy
+
+### Environment Variables
+
+Create `.env.local`:
+
+```env
+VITE_USE_MOCK=true
+VITE_API_URL=/api
 ```
 
 ## Threat Types Detected
@@ -99,6 +140,27 @@ Built with Apple 2026-inspired liquid glass UI:
 - Cyan/teal color palette
 - Smooth animations and transitions
 - Dark mode optimized for monitoring
+- Reduced motion support for accessibility
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/sensors-status` | GET | Get all sensor statuses |
+| `/api/detections` | GET | Get object detections |
+| `/api/lidar-points` | GET | Get LIDAR point cloud |
+| `/api/threat-analyze` | POST | Analyze detection for threats |
+| `/api/threats-summary` | GET | Get threat summary |
+| `/api/detections-history` | GET | Get detection history |
+
+## Performance Optimizations
+
+- Code splitting with Vite
+- Lazy-loaded components
+- GPU-accelerated canvas rendering
+- Reduced motion support
+- Optimized re-renders with React.memo
+- Throttled animation updates
 
 ## Author
 

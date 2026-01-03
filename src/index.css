@@ -29,7 +29,17 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Apple 2026 Liquid Glass Effects */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @layer components {
   .glass-panel {
     background: rgba(255, 255, 255, 0.02);
@@ -156,6 +166,7 @@ body {
     filter: blur(120px);
     opacity: 0.4;
     pointer-events: none;
+    will-change: transform, opacity;
   }
 
   .road-grid {
@@ -169,6 +180,81 @@ body {
     border: 2px solid rgba(6, 182, 212, 0.3);
     border-radius: 50%;
     animation: pulse 2s ease-out infinite;
+  }
+
+  .text-av-primary { color: #06b6d4; }
+  .text-av-secondary { color: #0ea5e9; }
+  .text-av-accent { color: #22d3ee; }
+  .text-av-success { color: #22c55e; }
+  .text-av-warning { color: #f59e0b; }
+  .text-av-danger { color: #ef4444; }
+  .text-av-purple { color: #a855f7; }
+
+  .bg-av-primary\/20 { background-color: rgba(6, 182, 212, 0.2); }
+  .bg-av-success\/20 { background-color: rgba(34, 197, 94, 0.2); }
+  .bg-av-warning\/20 { background-color: rgba(245, 158, 11, 0.2); }
+  .bg-av-danger\/20 { background-color: rgba(239, 68, 68, 0.2); }
+  .bg-av-purple\/20 { background-color: rgba(168, 85, 247, 0.2); }
+
+  .border-av-success\/50 { border-color: rgba(34, 197, 94, 0.5); }
+  .border-av-warning\/50 { border-color: rgba(245, 158, 11, 0.5); }
+  .border-av-danger\/50 { border-color: rgba(239, 68, 68, 0.5); }
+  .border-av-primary\/30 { border-color: rgba(6, 182, 212, 0.3); }
+  .border-av-danger\/30 { border-color: rgba(239, 68, 68, 0.3); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.05); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.5s ease-out;
+}
+
+/* Focus styles for accessibility */
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #06b6d4;
+  outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .glass-panel,
+  .glass-card {
+    background: rgba(0, 0, 0, 0.8);
+    border-color: rgba(255, 255, 255, 0.3);
   }
 }
 

@@ -34,11 +34,10 @@
 
 // Configuration
 const CONFIG = {
-  API_BASE_URL: import.meta.env.VITE_API_URL || 'http://localhost:8080/api',
-  WS_URL: import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws',
-  ROS_BRIDGE_URL: import.meta.env.VITE_ROS_URL || 'ws://localhost:9090',
-  USE_MOCK: import.meta.env.VITE_USE_MOCK !== 'false', // Default to mock data
-  CACHE_TTL: 5000, // 5 seconds for real-time data
+  API_BASE_URL: import.meta.env.VITE_API_URL || '/api',
+  USE_MOCK: import.meta.env.VITE_USE_MOCK !== 'false',
+  CACHE_TTL: 1000,
+  POLL_INTERVAL: 500,
 }
 
 // Simple in-memory cache for API responses
@@ -106,7 +105,7 @@ const generateMockSensorStatus = () => ({
  * Fetch current sensor status
  *
  * REAL IMPLEMENTATION:
- * GET /api/sensors/status
+ * GET /api/sensors-status
  * Response: { lidar: {}, camera: {}, radar: {}, ultrasonic: {}, gps: {} }
  */
 export const fetchSensorStatus = async () => {
@@ -115,7 +114,7 @@ export const fetchSensorStatus = async () => {
     return generateMockSensorStatus()
   }
 
-  const response = await fetch(`${CONFIG.API_BASE_URL}/sensors/status`)
+  const response = await fetch(`${CONFIG.API_BASE_URL}/sensors-status`)
   return response.json()
 }
 
@@ -129,7 +128,6 @@ export const fetchSensorStatus = async () => {
 export const fetchDetections = async () => {
   if (CONFIG.USE_MOCK) {
     await new Promise(r => setTimeout(r, 30))
-    // Generate 0-3 detections per call
     const count = Math.floor(Math.random() * 4)
     return { detections: Array.from({ length: count }, generateMockDetection) }
   }
@@ -142,7 +140,7 @@ export const fetchDetections = async () => {
  * Fetch LIDAR point cloud data
  *
  * REAL IMPLEMENTATION:
- * GET /api/lidar/points
+ * GET /api/lidar-points
  * Response: { points: [{ x, y, z, intensity }], timestamp }
  */
 export const fetchLidarPoints = async () => {
@@ -150,20 +148,19 @@ export const fetchLidarPoints = async () => {
     return { points: generateMockLidarPoints(), timestamp: Date.now() }
   }
 
-  const response = await fetch(`${CONFIG.API_BASE_URL}/lidar/points`)
+  const response = await fetch(`${CONFIG.API_BASE_URL}/lidar-points`)
   return response.json()
 }
 
 /**
- * Stream real-time sensor data via WebSocket
+ * Stream real-time sensor data via polling (WebSocket not available on Vercel)
  *
  * REAL IMPLEMENTATION:
- * WebSocket connection to /ws/sensors
- * Messages: { type: 'detection'|'lidar'|'status'|'threat', data: {} }
+ * Polling to /api/sensors/status, /api/detections
+ * Messages: { type: 'detection'|'lidar'|'status'|'confidence', data: {} }
  */
 export const createSensorStream = (onMessage, onError) => {
   if (CONFIG.USE_MOCK) {
-    // Mock streaming with intervals
     const detectionInterval = setInterval(() => {
       if (Math.random() > 0.6) {
         onMessage({
@@ -200,11 +197,45 @@ export const createSensorStream = (onMessage, onError) => {
     }
   }
 
-  // Real WebSocket connection
-  const ws = new WebSocket(`${CONFIG.WS_URL}/sensors`)
-  ws.onmessage = (event) => onMessage(JSON.parse(event.data))
-  ws.onerror = onError
-  return ws
+  // Polling-based "streaming" for Vercel serverless
+  let isRunning = true
+  const intervals = []
+
+  const startPolling = async () => {
+    while (isRunning) {
+      try {
+        const [statusRes, detectionsRes] = await Promise.all([
+          fetch(`${CONFIG.API_BASE_URL}/sensors-status`),
+          fetch(`${CONFIG.API_BASE_URL}/detections`),
+        ])
+
+        const status = await statusRes.json()
+        const detections = await detectionsRes.json()
+
+        onMessage({ type: 'status', data: status })
+
+        if (detections.detections && detections.detections.length > 0) {
+          detections.detections.forEach(det => {
+            onMessage({ type: 'detection', data: det })
+          })
+        }
+      } catch (error) {
+        onError(error)
+      }
+      await new Promise(r => setTimeout(r, CONFIG.POLL_INTERVAL))
+    }
+  }
+
+  const pollId = setInterval(startPolling, CONFIG.POLL_INTERVAL)
+  intervals.push(pollId)
+
+  return {
+    close: () => {
+      isRunning = false
+      intervals.forEach(clearInterval)
+    },
+    send: () => {},
+  }
 }
 
 /**
@@ -251,7 +282,7 @@ export const createROSBridge = (topics, onMessage) => {
  * Analyze detection for adversarial threats
  *
  * REAL IMPLEMENTATION:
- * POST /api/threat/analyze
+ * POST /api/threat-analyze
  * Body: { detection, image_patch }
  * Response: { is_adversarial, threat_type, confidence, explanation }
  */
@@ -267,7 +298,7 @@ export const analyzeForThreats = async (detection, imagePatch = null) => {
     }
   }
 
-  const response = await fetch(`${CONFIG.API_BASE_URL}/threat/analyze`, {
+  const response = await fetch(`${CONFIG.API_BASE_URL}/threat-analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ detection, image_patch: imagePatch }),
