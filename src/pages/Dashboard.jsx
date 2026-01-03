@@ -722,20 +722,6 @@ const Dashboard = ({ onBack }) => {
             </div>
           </div>
 
-              {/* Status */}
-              <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded bg-black/60">
-                <div className={`w-2 h-2 rounded-full ${isMonitoring ? 'bg-av-success animate-pulse' : 'bg-av-danger'}`}></div>
-                <span className="text-[10px] text-white/70">LIVE</span>
-              </div>
-
-              {/* Recording indicator */}
-              <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded bg-av-danger/20 border border-av-danger/30">
-                <div className="w-2 h-2 rounded-full bg-av-danger animate-pulse"></div>
-                <span className="text-[10px] text-av-danger">REC</span>
-              </div>
-            </div>
-          </div>
-
           {/* Detection Log */}
           <div className="glass-panel p-6 flex-1">
             <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">Detection Log</h3>
