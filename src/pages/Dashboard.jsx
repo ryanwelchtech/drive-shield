@@ -20,10 +20,21 @@ const Dashboard = ({ onBack }) => {
     radar: { status: 'active', confidence: 97.1 },
     ultrasonic: { status: 'active', confidence: 99.0 },
   })
+
+  const [cameraVehicles, setCameraVehicles] = useState([
+    { id: 1, lane: -1, distance: 60, speed: 55, type: 'sedan', width: 45, height: 25 },
+    { id: 2, lane: 0, distance: 100, speed: 65, type: 'suv', width: 50, height: 28 },
+    { id: 3, lane: 1, distance: 40, speed: 58, type: 'truck', width: 55, height: 35 },
+  ])
+  const [cameraPedestrians, setCameraPedestrians] = useState([
+    { id: 101, x: -120, y: 50, speedX: 0.8, speedY: 0, state: 'walking' },
+  ])
+
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
   const lastUpdateRef = useRef(Date.now())
   const pointsRef = useRef([])
+  const animationRef = useRef(null)
 
   // Memoized threat calculations to prevent unnecessary re-renders
   const threatCounts = useMemo(() => ({
@@ -96,6 +107,70 @@ const Dashboard = ({ onBack }) => {
     }
   }, [isMonitoring, updateConfidence])
 
+  // Camera scene animation - vehicles in lanes, pedestrians crossing
+  useEffect(() => {
+    if (!isMonitoring) return
+
+    let lastTime = Date.now()
+
+    const animate = () => {
+      const now = Date.now()
+      const dt = (now - lastTime) / 1000
+      lastTime = now
+
+      setCameraVehicles(prev => prev.map(v => {
+        const newDistance = v.distance + (v.speed - (sensorStatus?.egoSpeed || 65)) * dt * 0.05
+        if (newDistance > 150 || newDistance < 15) {
+          return {
+            ...v,
+            distance: 100 + Math.random() * 50,
+            speed: (sensorStatus?.egoSpeed || 65) + (Math.random() - 0.5) * 20,
+            type: ['sedan', 'suv', 'truck', 'coupe'][Math.floor(Math.random() * 4)]
+          }
+        }
+        return { ...v, distance: newDistance }
+      }))
+
+      setCameraPedestrians(prev => prev.map(p => {
+        let newX = p.x + p.speedX * dt * 40
+        let newY = p.y + p.speedY * dt * 40
+
+        if (p.state === 'walking') {
+          if (newX > -20) {
+            return { ...p, x: newX, state: 'crossing', speedX: 0.5, speedY: 0.3 }
+          }
+        } else if (p.state === 'crossing') {
+          if (newY > 80 || newX > 80) {
+            return null
+          }
+          if (Math.abs(newX) < 30 && Math.random() < 0.02) {
+            return { ...p, x: newX, y: newY, speedX: 0.3, speedY: -0.2 }
+          }
+        }
+        return { ...p, x: newX, y: newY }
+      }).filter(Boolean))
+
+      if (Math.random() < 0.015 && prev.length < 5) {
+        setCameraPedestrians(prev => [...prev, {
+          id: Date.now(),
+          x: -150 - Math.random() * 50,
+          y: -20,
+          speedX: 0.8 + Math.random() * 0.3,
+          speedY: 0,
+          state: 'walking'
+        }])
+      }
+
+      animationRef.current = requestAnimationFrame(animate)
+    }
+
+    animationRef.current = requestAnimationFrame(animate)
+
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current)
+    }
+  }, [isMonitoring, sensorStatus?.egoSpeed])
+
   // LIDAR Point Cloud Visualization - GPU-accelerated Canvas
   useEffect(() => {
     if (!canvasRef.current) return
@@ -112,27 +187,21 @@ const Dashboard = ({ onBack }) => {
 
     const render = () => {
       const points = pointsRef.current
+      const lidarPoints = lidarData?.points || []
 
-      if (points.length === 0) {
-        if (isMonitoring && !reducedMotion) {
-          animationId = requestAnimationFrame(render)
-        }
-        return
-      }
-
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.12)'
       ctx.fillRect(0, 0, width, height)
 
       ctx.strokeStyle = 'rgba(6, 182, 212, 0.15)'
       ctx.lineWidth = 1
       ctx.beginPath()
-      for (let r = 30; r <= 150; r += 30) {
+      for (let r = 25; r <= 150; r += 25) {
         ctx.moveTo(centerX + r, centerY)
         ctx.arc(centerX, centerY, r, 0, Math.PI * 2)
       }
       ctx.stroke()
 
-      ctx.strokeStyle = 'rgba(6, 182, 212, 0.1)'
+      ctx.strokeStyle = 'rgba(6, 182, 212, 0.12)'
       ctx.beginPath()
       ctx.moveTo(centerX, 0)
       ctx.lineTo(centerX, height)
@@ -140,15 +209,62 @@ const Dashboard = ({ onBack }) => {
       ctx.lineTo(width, centerY)
       ctx.stroke()
 
-      ctx.fillStyle = 'rgba(6, 182, 212, 0.7)'
+      ctx.fillStyle = 'rgba(6, 182, 212, 0.5)'
       ctx.beginPath()
-      points.forEach((point) => {
-        const x = centerX + Math.cos(point.angle) * point.distance
-        const y = centerY + Math.sin(point.angle) * point.distance
-        const size = 1 + point.intensity * 1.5
+      lidarPoints.forEach((point) => {
+        const x = centerX + point.x * 1.5
+        const y = centerY - point.y * 1.5
+        const size = 0.5 + point.intensity * 1.2
         ctx.moveTo(x + size, y)
         ctx.arc(x, y, size, 0, Math.PI * 2)
       })
+      ctx.fill()
+
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.7)'
+      ctx.beginPath()
+      cameraVehicles.forEach(v => {
+        if (v.distance < 150 && v.distance > 5) {
+          const scale = 0.8 + v.distance / 200
+          for (let i = 0; i < 15; i++) {
+            const ox = v.lane * 2 + (Math.random() - 0.5) * v.width * 0.3
+            const oy = v.distance + (Math.random() - 0.5) * v.height * 0.3
+            const oz = Math.random() * v.height * 0.8
+            const x = centerX + ox * 1.5
+            const y = centerY - oy * 1.5
+            ctx.moveTo(x + 1, y)
+            ctx.arc(x, y, 1.2, 0, Math.PI * 2)
+          }
+        }
+      })
+      ctx.fill()
+
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.8)'
+      ctx.beginPath()
+      cameraPedestrians.forEach(p => {
+        if (p.y > -30 && p.y < 120) {
+          for (let i = 0; i < 6; i++) {
+            const ox = p.x * 0.1 + (Math.random() - 0.5) * 0.8
+            const oy = p.y + Math.random() * 1.8
+            const oz = Math.random() * 1.7
+            const x = centerX + ox * 1.5
+            const y = centerY - oy * 1.5
+            ctx.moveTo(x + 0.8, y)
+            ctx.arc(x, y, 0.8, 0, Math.PI * 2)
+          }
+        }
+      })
+      ctx.fill()
+
+      ctx.fillStyle = 'rgba(6, 182, 212, 0.8)'
+      ctx.beginPath()
+      for (let i = 0; i < 30; i++) {
+        const angle = (i / 30) * Math.PI * 2
+        const dist = 3 + Math.random() * 8
+        const x = centerX + Math.cos(angle) * dist
+        const y = centerY + Math.sin(angle) * dist
+        ctx.moveTo(x + 1, y)
+        ctx.arc(x, y, 1, 0, Math.PI * 2)
+      }
       ctx.fill()
 
       if (isMonitoring) {
@@ -220,7 +336,7 @@ const Dashboard = ({ onBack }) => {
             <div className="flex items-center gap-4 text-xs text-white/50">
               <span className="flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-av-success animate-pulse"></span>
-                {sensorStatus?.egoSpeed || 65} km/h
+                {sensorStatus?.egoSpeed ? Math.round(sensorStatus.egoSpeed * 0.621) : 40} mph
               </span>
               <span>Fusion: {sensorStatus?.fusion?.confidence?.toFixed(0) || 96}%</span>
               <span className="capitalize">{sensorStatus?.environment?.ambientLight || 'day'} mode</span>
@@ -321,7 +437,7 @@ const Dashboard = ({ onBack }) => {
             <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">Detection Stats</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 rounded-xl bg-white/5 text-center">
-                <p className="text-2xl font-bold text-av-primary">{sensorStatus?.egoSpeed || 65}<span className="text-sm text-white/30 ml-1">km/h</span></p>
+                <p className="text-2xl font-bold text-av-primary">{sensorStatus?.egoSpeed ? Math.round(sensorStatus.egoSpeed * 0.621) : 40}<span className="text-sm text-white/30 ml-1">mph</span></p>
                 <p className="text-xs text-white/50">Ego Speed</p>
               </div>
               <div className="p-4 rounded-xl bg-white/5 text-center">
@@ -378,7 +494,6 @@ const Dashboard = ({ onBack }) => {
                 height={350}
                 className="w-full rounded-xl bg-black/50"
               />
-              {/* Overlay UI */}
               <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 border border-white/10">
                 <span className="text-xs text-white/50">Range:</span>
                 <span className="text-xs text-av-primary font-mono">150m</span>
@@ -386,11 +501,15 @@ const Dashboard = ({ onBack }) => {
               <div className="absolute bottom-4 right-4 flex gap-4 text-xs">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-av-primary"></div>
-                  <span className="text-white/50">Object</span>
+                  <span className="text-white/50">LIDAR</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-av-danger"></div>
-                  <span className="text-white/50">Threat</span>
+                  <div className="w-3 h-3 rounded-full bg-av-success"></div>
+                  <span className="text-white/50">Vehicle</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-av-warning"></div>
+                  <span className="text-white/50">Pedestrian</span>
                 </div>
               </div>
             </div>
@@ -434,69 +553,179 @@ const Dashboard = ({ onBack }) => {
           {/* Camera Feed Simulation */}
           <div className="glass-panel p-6">
             <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">Front Camera</h3>
-            <div className="relative aspect-video bg-gradient-to-b from-gray-800 to-gray-900 rounded-xl overflow-hidden">
-              {/* Road lines */}
-              <svg className="absolute inset-0 w-full h-full" viewBox="0 0 200 120">
-                <defs>
-                  <linearGradient id="roadGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stopColor="rgba(6, 182, 212, 0.05)"/>
-                    <stop offset="100%" stopColor="rgba(6, 182, 212, 0.2)"/>
-                  </linearGradient>
-                </defs>
-                <polygon points="85,120 115,120 100,50" fill="url(#roadGrad)"/>
-                <line x1="100" y1="120" x2="100" y2="50" stroke="rgba(255,255,255,0.2)" strokeWidth="1" strokeDasharray="4,4"/>
-                <line x1="60" y1="120" x2="90" y2="50" stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="6,4"/>
-                <line x1="140" y1="120" x2="110" y2="50" stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="6,4"/>
+            <div className="relative aspect-video bg-gradient-to-b from-sky-900 via-sky-700 to-gray-800 rounded-xl overflow-hidden">
+              {/* Sky gradient */}
+              <div className="absolute inset-0 bg-gradient-to-b from-sky-900 via-sky-600 to-blue-800"/>
+
+              {/* Horizon line */}
+              <div className="absolute top-[15%] left-0 right-0 h-px bg-white/20"/>
+
+              {/* Mountains/skyline silhouette */}
+              <svg className="absolute top-[10%] w-full h-[10%]" viewBox="0 0 400 60" preserveAspectRatio="none">
+                <polygon points="0,60 0,30 20,40 40,25 60,45 80,35 100,50 120,30 150,45 180,20 220,40 260,25 300,45 350,30 400,50 400,60" fill="rgba(0,0,0,0.3)"/>
               </svg>
 
-              {/* Detection boxes from real data */}
-              {isMonitoring && detections.slice(0, 6).map((det) => {
-                const isThreat = !!det.threat
-                const boxColor = isThreat ? '#ef4444' : det.type === 'pedestrian' ? '#f59e0b' : '#22c55e'
-                const width = det.type === 'vehicle' ? 35 + det.confidence * 0.1 : det.type === 'pedestrian' ? 15 : 25
-                const height = det.type === 'vehicle' ? 25 + det.confidence * 0.15 : det.type === 'pedestrian' ? 30 : 20
-                const x = 50 + ((det.bearing + 180) / 360) * 100 - width / 2
-                const y = 30 + (100 - det.distance) / 100 * 60
+              {/* Road with perspective */}
+              <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 240">
+                <defs>
+                  <linearGradient id="roadPerspective" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor="#2a2a2a"/>
+                    <stop offset="100%" stopColor="#1a1a1a"/>
+                  </linearGradient>
+                  <linearGradient id="grassGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor="#1a3d1a"/>
+                    <stop offset="100%" stopColor="#0a1f0a"/>
+                  </linearGradient>
+                </defs>
+
+                {/* Grass/shoulder */}
+                <polygon points="0,100 0,240 80,240 120,120" fill="url(#grassGrad)"/>
+                <polygon points="400,100 400,240 320,240 280,120" fill="url(#grassGrad)"/>
+
+                {/* Main road surface */}
+                <polygon points="120,120 280,120 400,240 0,240" fill="url(#roadPerspective)"/>
+
+                {/* Lane markings */}
+                <line x1="200" y1="120" x2="200" y2="240" stroke="white" strokeWidth="2" strokeDasharray="20,15"/>
+
+                {/* Left lane divider */}
+                <line x1="160" y1="130" x2="120" y2="240" stroke="white" strokeWidth="1.5" strokeDasharray="10,10" opacity="0.6"/>
+
+                {/* Right lane divider */}
+                <line x1="240" y1="130" x2="280" y2="240" stroke="white" strokeWidth="1.5" strokeDasharray="10,10" opacity="0.6"/>
+
+                {/* Road edge lines */}
+                <line x1="120" y1="120" x2="0" y2="240" stroke="white" strokeWidth="2"/>
+                <line x1="280" y1="120" x2="400" y2="240" stroke="white" strokeWidth="2"/>
+
+                {/* Crosswalk stripes */}
+                <g opacity="0.4">
+                  {[0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180].map((offset, i) => (
+                    <rect key={i} x={offset} y="200" width="8" height="4" fill="white"/>
+                  ))}
+                </g>
+              </svg>
+
+              {/* Animated vehicles in lanes */}
+              {isMonitoring && cameraVehicles.map((v) => {
+                const scale = Math.max(0.1, 1 - v.distance / 200)
+                const laneOffset = v.lane * 45
+                const perspectiveY = 130 + (v.distance / 150) * 110
+                const perspectiveX = 200 + laneOffset * (1 - v.distance / 200)
+                const vehicleWidth = v.width * scale * 0.8
+                const vehicleHeight = v.height * scale * 0.8
+                const isAhead = v.distance < 80
 
                 return (
                   <motion.div
-                    key={det.id}
-                    className="absolute rounded border-2"
+                    key={v.id}
+                    className="absolute"
                     style={{
-                      left: `${Math.max(10, Math.min(70, x))}%`,
-                      top: `${Math.max(10, Math.min(60, y))}%`,
-                      width: det.type === 'vehicle' ? '50px' : '25px',
-                      height: det.type === 'vehicle' ? '35px' : '35px',
-                      borderColor: boxColor,
-                      boxShadow: `0 0 10px ${boxColor}40`,
+                      left: `${(perspectiveX / 400) * 100}%`,
+                      top: `${(perspectiveY / 240) * 100}%`,
+                      width: vehicleWidth,
+                      height: vehicleHeight,
                     }}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: [0.7, 1, 0.7], scale: 1 }}
-                    transition={{ duration: reducedMotion ? 0 : 1.5, repeat: Infinity }}
+                    animate={{
+                      opacity: [0.8, 1, 0.8],
+                    }}
+                    transition={{ duration: reducedMotion ? 0 : 2, repeat: Infinity }}
                   >
-                    <span
-                      className="absolute -top-5 left-0 text-[9px] px-1 rounded whitespace-nowrap"
-                      style={{ backgroundColor: 'rgba(0,0,0,0.6)', color: boxColor }}
+                    {/* Vehicle body */}
+                    <div
+                      className={`w-full h-full rounded-lg ${
+                        v.type === 'truck' ? 'bg-gray-700' :
+                        v.type === 'suv' ? 'bg-gray-600' : 'bg-gray-500'
+                      }`}
+                      style={{
+                        boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
+                      }}
                     >
-                      {det.type.toUpperCase()} {det.confidence?.toFixed(0) || '95'}%
-                    </span>
-                    {isThreat && (
-                      <motion.div
-                        className="absolute -inset-2 rounded border border-av-danger"
-                        animate={{ opacity: [0.3, 0.8, 0.3], scale: [1, 1.1, 1] }}
-                        transition={{ duration: reducedMotion ? 0 : 0.8, repeat: Infinity }}
-                      />
-                    )}
+                      {/* Windshield */}
+                      <div className="absolute top-[10%] left-[15%] right-[15%] h-[25%] bg-gray-800 rounded-t-sm"/>
+                      {/* Rear window */}
+                      <div className="absolute bottom-[5%] left-[20%] right-[20%] h-[15%] bg-gray-800 rounded-b-sm"/>
+                      {/* Headlights/taillights based on distance */}
+                      {isAhead ? (
+                        <div className="absolute top-[10%] left-[5%] right-[5%] flex justify-between">
+                          <div className="w-2 h-1 bg-yellow-400 rounded-full"/>
+                          <div className="w-2 h-1 bg-yellow-400 rounded-full"/>
+                        </div>
+                      ) : (
+                        <div className="absolute bottom-[5%] left-[10%] right-[10%] flex justify-between">
+                          <div className="w-2 h-1 bg-red-600 rounded-full"/>
+                          <div className="w-2 h-1 bg-red-600 rounded-full"/>
+                        </div>
+                      )}
+                    </div>
+                    {/* Distance label */}
+                    <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[8px] text-white/60 whitespace-nowrap">
+                      {v.distance.toFixed(0)}m
+                    </div>
+                  </motion.div>
+                )
+              })}
+
+              {/* Animated pedestrians crossing */}
+              {isMonitoring && cameraPedestrians.map((p) => {
+                const scale = Math.max(0.15, 1 - (p.y + 50) / 200)
+                const personX = 200 + p.x * (1 + (p.y + 50) / 150)
+                const personY = 140 + p.y
+
+                return (
+                  <motion.div
+                    key={p.id}
+                    className="absolute"
+                    style={{
+                      left: `${(personX / 400) * 100}%`,
+                      top: `${(personY / 240) * 100}%`,
+                      width: 8 * scale,
+                      height: 18 * scale,
+                    }}
+                    animate={p.state === 'walking' ? {
+                      y: [0, -2, 0],
+                    } : {}}
+                    transition={p.state === 'walking' ? {
+                      duration: reducedMotion ? 0 : 0.4,
+                      repeat: Infinity,
+                    } : {}}
+                  >
+                    {/* Head */}
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[60%] h-[25%] bg-amber-200 rounded-full"/>
+                    {/* Body */}
+                    <div className="absolute top-[25%] left-[20%] w-[60%] h-[45%] bg-blue-600 rounded-sm"/>
+                    {/* Legs */}
+                    <div className="absolute bottom-0 left-[25%] w-[20%] h-[30%] bg-black rounded-sm"/>
+                    <div className="absolute bottom-0 right-[25%] w-[20%] h-[30%] bg-black rounded-sm"/>
                   </motion.div>
                 )
               })}
 
               {/* HUD overlay */}
-              <div className="absolute bottom-2 left-2 right-2 flex justify-between text-[8px] text-white/40">
+              <div className="absolute bottom-2 left-2 right-2 flex justify-between text-[9px] text-white/50 font-mono">
                 <span>FOV: 120°</span>
-                <span>FPS: 30</span>
-                <span>RES: 1920×1080</span>
+                <span className="text-av-success">{sensorStatus?.camera?.fps || 30} FPS</span>
+                <span>1080p</span>
               </div>
+
+              {/* Speed indicator */}
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-white/40">
+                {sensorStatus?.egoSpeed ? Math.round(sensorStatus.egoSpeed * 0.621) : 40} MPH
+              </div>
+
+              {/* Status */}
+              <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded bg-black/60">
+                <div className={`w-2 h-2 rounded-full ${isMonitoring ? 'bg-av-success animate-pulse' : 'bg-av-danger'}`}></div>
+                <span className="text-[10px] text-white/70">CAM FRONT</span>
+              </div>
+
+              {/* Recording indicator */}
+              <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded bg-av-danger/20 border border-av-danger/30">
+                <div className="w-2 h-2 rounded-full bg-av-danger animate-pulse"></div>
+                <span className="text-[10px] text-av-danger">REC</span>
+              </div>
+            </div>
+          </div>
 
               {/* Status */}
               <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded bg-black/60">
