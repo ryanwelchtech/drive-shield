@@ -217,13 +217,20 @@ const Dashboard = ({ onBack }) => {
             <h1 className="text-2xl font-bold">
               <span className="gradient-text">DriveShield</span> Monitoring Center
             </h1>
-            <p className="text-sm text-white/50">Real-time AV threat detection and sensor analysis</p>
+            <div className="flex items-center gap-4 text-xs text-white/50">
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-av-success animate-pulse"></span>
+                {sensorStatus?.egoSpeed || 65} km/h
+              </span>
+              <span>Fusion: {sensorStatus?.fusion?.confidence?.toFixed(0) || 96}%</span>
+              <span className="capitalize">{sensorStatus?.environment?.ambientLight || 'day'} mode</span>
+            </div>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
           <div className={`px-4 py-2 rounded-xl border ${getThreatBg(threatLevel)}`}>
-            <span className="text-xs text-white/50 mr-2">Threat Level:</span>
+            <span className="text-xs text-white/50 mr-2">Threat:</span>
             <span className={`font-bold ${getThreatColor(threatLevel)}`}>{threatLevel}</span>
           </div>
           <motion.button
@@ -254,25 +261,58 @@ const Dashboard = ({ onBack }) => {
           {/* Sensor Health */}
           <div className="glass-panel p-6">
             <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">Sensor Status</h3>
-            <div className="space-y-4">
-              {Object.entries(sensorStatus).map(([sensor, data]) => (
-                <div key={sensor} className="p-4 rounded-xl bg-white/5">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-3 h-3 rounded-full ${data.status === 'active' ? 'bg-av-success animate-pulse' : 'bg-av-danger'}`}></div>
-                      <span className="text-sm text-white capitalize">{sensor}</span>
+            <div className="space-y-3">
+              {['lidar', 'camera', 'radar', 'ultrasonic', 'gps'].map((sensor) => {
+                const data = sensorStatus?.[sensor] || { status: 'inactive', confidence: 0 }
+                return (
+                  <div key={sensor} className="p-3 rounded-xl bg-white/5">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2.5 h-2.5 rounded-full ${data.status === 'active' ? 'bg-av-success animate-pulse' : 'bg-av-danger'}`}></div>
+                        <span className="text-sm text-white capitalize">{sensor}</span>
+                      </div>
+                      <span className="text-xs font-mono text-av-primary">{data.confidence?.toFixed(1)}%</span>
                     </div>
-                    <span className="text-sm font-mono text-av-primary">{data.confidence?.toFixed(1)}%</span>
+                    <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                      <motion.div
+                        className="h-full bg-gradient-to-r from-av-primary to-av-accent rounded-full"
+                        animate={{ width: `${data.confidence || 0}%` }}
+                        transition={{ duration: 0.5 }}
+                      />
+                    </div>
+                    {sensor === 'gps' && data.satellites && (
+                      <div className="flex gap-3 mt-1 text-[10px] text-white/30">
+                        <span>Sat: {data.satellites}</span>
+                        <span>HDOP: {data.hdop?.toFixed(1)}</span>
+                      </div>
+                    )}
+                    {sensor === 'camera' && data.fps && (
+                      <div className="flex gap-3 mt-1 text-[10px] text-white/30">
+                        <span>FPS: {data.fps}</span>
+                        <span>{data.resolution}</span>
+                      </div>
+                    )}
+                    {sensor === 'lidar' && data.fps && (
+                      <div className="flex gap-3 mt-1 text-[10px] text-white/30">
+                        <span>FPS: {data.fps}</span>
+                        <span>Range: {data.range}m</span>
+                      </div>
+                    )}
                   </div>
-                  <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                    <motion.div
-                      className="h-full bg-gradient-to-r from-av-primary to-av-accent rounded-full"
-                      animate={{ width: `${data.confidence || 0}%` }}
-                      transition={{ duration: 0.3 }}
-                    />
+                )
+              })}
+              {sensorStatus?.fusion && (
+                <div className="p-3 rounded-xl bg-av-primary/10 border border-av-primary/20">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-av-primary uppercase">Sensor Fusion</span>
+                    <span className="text-xs font-mono text-av-primary">{sensorStatus.fusion.confidence?.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex gap-3 text-[10px] text-white/40">
+                    <span>Latency: {sensorStatus.fusion.latency}ms</span>
+                    <span>Tracking: {sensorStatus.fusion.tracking} objects</span>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           </div>
 
@@ -281,8 +321,8 @@ const Dashboard = ({ onBack }) => {
             <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">Detection Stats</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 rounded-xl bg-white/5 text-center">
-                <p className="text-2xl font-bold text-av-primary">{detectionStats.total}</p>
-                <p className="text-xs text-white/50">Total Objects</p>
+                <p className="text-2xl font-bold text-av-primary">{sensorStatus?.egoSpeed || 65}<span className="text-sm text-white/30 ml-1">km/h</span></p>
+                <p className="text-xs text-white/50">Ego Speed</p>
               </div>
               <div className="p-4 rounded-xl bg-white/5 text-center">
                 <p className="text-2xl font-bold text-av-danger">{threatCounts.total}</p>
@@ -395,40 +435,79 @@ const Dashboard = ({ onBack }) => {
           <div className="glass-panel p-6">
             <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">Front Camera</h3>
             <div className="relative aspect-video bg-gradient-to-b from-gray-800 to-gray-900 rounded-xl overflow-hidden">
-              {/* Simulated camera view */}
-              <div className="absolute inset-0 flex items-end justify-center pb-8">
-                <div className="w-32 h-1 bg-white/20 rounded"></div>
-              </div>
               {/* Road lines */}
               <svg className="absolute inset-0 w-full h-full" viewBox="0 0 200 120">
-                <line x1="60" y1="120" x2="90" y2="60" stroke="rgba(255,255,255,0.3)" strokeWidth="2" strokeDasharray="8,8"/>
-                <line x1="140" y1="120" x2="110" y2="60" stroke="rgba(255,255,255,0.3)" strokeWidth="2" strokeDasharray="8,8"/>
+                <defs>
+                  <linearGradient id="roadGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor="rgba(6, 182, 212, 0.05)"/>
+                    <stop offset="100%" stopColor="rgba(6, 182, 212, 0.2)"/>
+                  </linearGradient>
+                </defs>
+                <polygon points="85,120 115,120 100,50" fill="url(#roadGrad)"/>
+                <line x1="100" y1="120" x2="100" y2="50" stroke="rgba(255,255,255,0.2)" strokeWidth="1" strokeDasharray="4,4"/>
+                <line x1="60" y1="120" x2="90" y2="50" stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="6,4"/>
+                <line x1="140" y1="120" x2="110" y2="50" stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="6,4"/>
               </svg>
-              {/* Detection boxes */}
-              {isMonitoring && (
-                <>
+
+              {/* Detection boxes from real data */}
+              {isMonitoring && detections.slice(0, 6).map((det) => {
+                const isThreat = !!det.threat
+                const boxColor = isThreat ? '#ef4444' : det.type === 'pedestrian' ? '#f59e0b' : '#22c55e'
+                const width = det.type === 'vehicle' ? 35 + det.confidence * 0.1 : det.type === 'pedestrian' ? 15 : 25
+                const height = det.type === 'vehicle' ? 25 + det.confidence * 0.15 : det.type === 'pedestrian' ? 30 : 20
+                const x = 50 + ((det.bearing + 180) / 360) * 100 - width / 2
+                const y = 30 + (100 - det.distance) / 100 * 60
+
+                return (
                   <motion.div
-                    className="absolute border-2 border-av-success rounded"
-                    style={{ left: '30%', top: '40%', width: '40px', height: '30px' }}
-                    animate={{ opacity: reducedMotion ? 1 : [0.5, 1, 0.5] }}
-                    transition={{ duration: 1, repeat: Infinity }}
+                    key={det.id}
+                    className="absolute rounded border-2"
+                    style={{
+                      left: `${Math.max(10, Math.min(70, x))}%`,
+                      top: `${Math.max(10, Math.min(60, y))}%`,
+                      width: det.type === 'vehicle' ? '50px' : '25px',
+                      height: det.type === 'vehicle' ? '35px' : '35px',
+                      borderColor: boxColor,
+                      boxShadow: `0 0 10px ${boxColor}40`,
+                    }}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: [0.7, 1, 0.7], scale: 1 }}
+                    transition={{ duration: reducedMotion ? 0 : 1.5, repeat: Infinity }}
                   >
-                    <span className="absolute -top-5 left-0 text-[10px] text-av-success bg-black/50 px-1 rounded">CAR 94%</span>
+                    <span
+                      className="absolute -top-5 left-0 text-[9px] px-1 rounded whitespace-nowrap"
+                      style={{ backgroundColor: 'rgba(0,0,0,0.6)', color: boxColor }}
+                    >
+                      {det.type.toUpperCase()} {det.confidence?.toFixed(0) || '95'}%
+                    </span>
+                    {isThreat && (
+                      <motion.div
+                        className="absolute -inset-2 rounded border border-av-danger"
+                        animate={{ opacity: [0.3, 0.8, 0.3], scale: [1, 1.1, 1] }}
+                        transition={{ duration: reducedMotion ? 0 : 0.8, repeat: Infinity }}
+                      />
+                    )}
                   </motion.div>
-                  <motion.div
-                    className="absolute border-2 border-av-warning rounded"
-                    style={{ right: '25%', top: '45%', width: '20px', height: '35px' }}
-                    animate={{ opacity: reducedMotion ? 1 : [0.5, 1, 0.5] }}
-                    transition={{ duration: 1.2, repeat: Infinity }}
-                  >
-                    <span className="absolute -top-5 left-0 text-[10px] text-av-warning bg-black/50 px-1 rounded">PED 87%</span>
-                  </motion.div>
-                </>
-              )}
+                )
+              })}
+
+              {/* HUD overlay */}
+              <div className="absolute bottom-2 left-2 right-2 flex justify-between text-[8px] text-white/40">
+                <span>FOV: 120°</span>
+                <span>FPS: 30</span>
+                <span>RES: 1920×1080</span>
+              </div>
+
               {/* Status */}
               <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded bg-black/60">
                 <div className={`w-2 h-2 rounded-full ${isMonitoring ? 'bg-av-success animate-pulse' : 'bg-av-danger'}`}></div>
                 <span className="text-[10px] text-white/70">LIVE</span>
+              </div>
+
+              {/* Recording indicator */}
+              <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded bg-av-danger/20 border border-av-danger/30">
+                <div className="w-2 h-2 rounded-full bg-av-danger animate-pulse"></div>
+                <span className="text-[10px] text-av-danger">REC</span>
               </div>
             </div>
           </div>
