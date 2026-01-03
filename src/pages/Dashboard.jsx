@@ -13,6 +13,7 @@ const Dashboard = ({ onBack }) => {
   const [confidenceHistory, setConfidenceHistory] = useState([])
   const [currentConfidence, setCurrentConfidence] = useState(96.8)
   const [threatLevel, setThreatLevel] = useState('LOW')
+  const [lidarData, setLidarData] = useState(null)
   const [sensorStatus, setSensorStatus] = useState({
     lidar: { status: 'active', confidence: 98.2 },
     camera: { status: 'active', confidence: 94.5 },
@@ -74,6 +75,17 @@ const Dashboard = ({ onBack }) => {
           case 'confidence':
             updateConfidence(message.data.value)
             break
+          case 'lidar':
+            if (message.data.points) {
+              setLidarData(message.data)
+              pointsRef.current = message.data.points.map(p => ({
+                angle: Math.atan2(p.y, p.x),
+                distance: Math.sqrt(p.x * p.x + p.y * p.y),
+                z: p.z,
+                intensity: p.intensity,
+              }))
+            }
+            break
         }
       },
       (error) => console.error('Stream error:', error)
@@ -95,29 +107,23 @@ const Dashboard = ({ onBack }) => {
 
     let animationId
 
-    // Initialize points once (avoid recreation each frame)
-    if (pointsRef.current.length === 0) {
-      for (let i = 0; i < 500; i++) {
-        pointsRef.current.push({
-          angle: Math.random() * Math.PI * 2,
-          distance: 20 + Math.random() * 130,
-          z: (Math.random() - 0.5) * 50,
-          intensity: Math.random(),
-        })
-      }
-    }
-
     const centerX = width / 2
     const centerY = height / 2
-    const points = pointsRef.current
 
     const render = () => {
-      // Fade effect for trails (more efficient than clearRect)
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.1)'
+      const points = pointsRef.current
+
+      if (points.length === 0) {
+        if (isMonitoring && !reducedMotion) {
+          animationId = requestAnimationFrame(render)
+        }
+        return
+      }
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'
       ctx.fillRect(0, 0, width, height)
 
-      // Batch draw grid circles (single beginPath for performance)
-      ctx.strokeStyle = 'rgba(6, 182, 212, 0.1)'
+      ctx.strokeStyle = 'rgba(6, 182, 212, 0.15)'
       ctx.lineWidth = 1
       ctx.beginPath()
       for (let r = 30; r <= 150; r += 30) {
@@ -126,46 +132,38 @@ const Dashboard = ({ onBack }) => {
       }
       ctx.stroke()
 
-      // Batch draw all normal points first (reduces state changes)
-      ctx.fillStyle = 'rgba(6, 182, 212, 0.6)'
+      ctx.strokeStyle = 'rgba(6, 182, 212, 0.1)'
+      ctx.beginPath()
+      ctx.moveTo(centerX, 0)
+      ctx.lineTo(centerX, height)
+      ctx.moveTo(0, centerY)
+      ctx.lineTo(width, centerY)
+      ctx.stroke()
+
+      ctx.fillStyle = 'rgba(6, 182, 212, 0.7)'
       ctx.beginPath()
       points.forEach((point) => {
         const x = centerX + Math.cos(point.angle) * point.distance
         const y = centerY + Math.sin(point.angle) * point.distance
-
-        ctx.moveTo(x + 2, y)
-        ctx.arc(x, y, 2, 0, Math.PI * 2)
-
-        // Animate points (minimal calculations)
-        if (isMonitoring) {
-          point.angle += 0.002
-          point.distance += (Math.random() - 0.5) * 0.5
-          if (point.distance < 20) point.distance = 20
-          if (point.distance > 150) point.distance = 150
-        }
+        const size = 1 + point.intensity * 1.5
+        ctx.moveTo(x + size, y)
+        ctx.arc(x, y, size, 0, Math.PI * 2)
       })
       ctx.fill()
 
-      // Draw threat points separately (fewer draws)
       if (isMonitoring) {
         ctx.fillStyle = 'rgba(239, 68, 68, 0.9)'
         ctx.beginPath()
         points.forEach((point) => {
-          if (Math.random() > 0.995) {
+          if (point.intensity > 0.8 && Math.random() > 0.98) {
             const x = centerX + Math.cos(point.angle) * point.distance
             const y = centerY + Math.sin(point.angle) * point.distance
-            ctx.moveTo(x + 4, y)
-            ctx.arc(x, y, 4, 0, Math.PI * 2)
+            ctx.moveTo(x + 3, y)
+            ctx.arc(x, y, 3, 0, Math.PI * 2)
           }
         })
         ctx.fill()
       }
-
-      // Draw vehicle in center
-      ctx.fillStyle = 'rgba(6, 182, 212, 0.8)'
-      ctx.fillRect(centerX - 8, centerY - 15, 16, 30)
-      ctx.fillStyle = 'rgba(6, 182, 212, 0.5)'
-      ctx.fillRect(centerX - 5, centerY - 20, 10, 8)
 
       if (isMonitoring && !reducedMotion) {
         animationId = requestAnimationFrame(render)
@@ -177,7 +175,7 @@ const Dashboard = ({ onBack }) => {
     return () => {
       if (animationId) cancelAnimationFrame(animationId)
     }
-  }, [isMonitoring])
+  }, [isMonitoring, reducedMotion])
 
   const getThreatColor = (level) => {
     switch (level) {

@@ -35,10 +35,16 @@
 // Configuration
 const CONFIG = {
   API_BASE_URL: import.meta.env.VITE_API_URL || '/api',
-  USE_MOCK: import.meta.env.VITE_USE_MOCK !== 'false',
+  USE_MOCK: import.meta.env.VITE_USE_MOCK === 'true',
   CACHE_TTL: 1000,
-  POLL_INTERVAL: 500,
+  POLL_INTERVAL: 800,
 }
+
+console.log('[DataService] Initialized:', {
+  apiUrl: CONFIG.API_BASE_URL,
+  useMock: CONFIG.USE_MOCK,
+  mode: CONFIG.USE_MOCK ? 'MOCK' : 'LIVE API'
+})
 
 // Simple in-memory cache for API responses
 const cache = new Map()
@@ -156,11 +162,12 @@ export const fetchLidarPoints = async () => {
  * Stream real-time sensor data via polling (WebSocket not available on Vercel)
  *
  * REAL IMPLEMENTATION:
- * Polling to /api/sensors/status, /api/detections
+ * Polling to /api/sensors-status, /api/detections
  * Messages: { type: 'detection'|'lidar'|'status'|'confidence', data: {} }
  */
 export const createSensorStream = (onMessage, onError) => {
   if (CONFIG.USE_MOCK) {
+    console.log('[DataService] Using MOCK data stream')
     const detectionInterval = setInterval(() => {
       if (Math.random() > 0.6) {
         onMessage({
@@ -197,42 +204,69 @@ export const createSensorStream = (onMessage, onError) => {
     }
   }
 
-  // Polling-based "streaming" for Vercel serverless
+  console.log('[DataService] Using LIVE API stream')
   let isRunning = true
-  const intervals = []
 
-  const startPolling = async () => {
-    while (isRunning) {
-      try {
-        const [statusRes, detectionsRes] = await Promise.all([
-          fetch(`${CONFIG.API_BASE_URL}/sensors-status`),
-          fetch(`${CONFIG.API_BASE_URL}/detections`),
-        ])
+  const pollData = async () => {
+    if (!isRunning) return
 
-        const status = await statusRes.json()
-        const detections = await detectionsRes.json()
+    try {
+      const [statusRes, detectionsRes] = await Promise.all([
+        fetch(`${CONFIG.API_BASE_URL}/sensors-status`),
+        fetch(`${CONFIG.API_BASE_URL}/detections`),
+      ])
 
-        onMessage({ type: 'status', data: status })
-
-        if (detections.detections && detections.detections.length > 0) {
-          detections.detections.forEach(det => {
-            onMessage({ type: 'detection', data: det })
-          })
-        }
-      } catch (error) {
-        onError(error)
+      if (!statusRes.ok || !detectionsRes.ok) {
+        throw new Error('API request failed')
       }
-      await new Promise(r => setTimeout(r, CONFIG.POLL_INTERVAL))
+
+      const status = await statusRes.json()
+      const detections = await detectionsRes.json()
+
+      onMessage({ type: 'status', data: status })
+
+      if (detections.detections && detections.detections.length > 0) {
+        detections.detections.forEach(det => {
+          onMessage({ type: 'detection', data: det })
+        })
+      }
+    } catch (error) {
+      console.error('[DataService] Poll error:', error.message)
+      onError(error)
     }
   }
 
-  const pollId = setInterval(startPolling, CONFIG.POLL_INTERVAL)
-  intervals.push(pollId)
+  const lidarInterval = setInterval(async () => {
+    if (!isRunning) return
+
+    try {
+      const res = await fetch(`${CONFIG.API_BASE_URL}/lidar-points`)
+      if (res.ok) {
+        const data = await res.json()
+        onMessage({ type: 'lidar', data })
+      }
+    } catch (error) {
+      console.error('[DataService] LIDAR poll error:', error.message)
+    }
+  }, 200)
+
+  const confidenceInterval = setInterval(() => {
+    if (!isRunning) return
+    onMessage({
+      type: 'confidence',
+      data: { value: 85 + Math.random() * 15, timestamp: Date.now() },
+    })
+  }, 100)
+
+  pollData()
+  const mainInterval = setInterval(pollData, CONFIG.POLL_INTERVAL)
 
   return {
     close: () => {
       isRunning = false
-      intervals.forEach(clearInterval)
+      clearInterval(mainInterval)
+      clearInterval(lidarInterval)
+      clearInterval(confidenceInterval)
     },
     send: () => {},
   }
