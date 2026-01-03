@@ -530,106 +530,189 @@ const VehicleSensorViz = () => {
 
 // Radar Visualization Component
 const RadarViz = () => {
-  const [detections, setDetections] = useState([])
+  const [blips, setBlips] = useState([])
+  const [sweepAngle, setSweepAngle] = useState(0)
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      const newDetection = {
-        id: Date.now(),
-        angle: Math.random() * 360,
-        distance: 30 + Math.random() * 70,
-        type: Math.random() > 0.7 ? 'threat' : 'object',
+    const sweepInterval = setInterval(() => {
+      setSweepAngle(angle => (angle + 1) % 360)
+    }, 30)
+
+    const blipInterval = setInterval(() => {
+      if (Math.random() > 0.6) {
+        const isThreat = Math.random() > 0.75
+        const angle = Math.random() * 360
+        const distance = 15 + Math.random() * 80
+        const newBlip = {
+          id: Date.now() + Math.random(),
+          angle,
+          distance,
+          type: isThreat ? 'threat' : 'object',
+          intensity: 1,
+          bearing: Math.floor(angle),
+        }
+        setBlips(prev => [...prev.slice(-25), newBlip])
       }
-      setDetections(prev => [...prev.slice(-10), newDetection])
-    }, 1500)
-    return () => clearInterval(interval)
+    }, 400)
+
+    return () => {
+      clearInterval(sweepInterval)
+      clearInterval(blipInterval)
+    }
   }, [])
+
+  useEffect(() => {
+    const fadeInterval = setInterval(() => {
+      setBlips(prev => prev.filter(b => b.intensity > 0.1).map(b => ({
+        ...b,
+        intensity: b.intensity - 0.02
+      })))
+    }, 100)
+    return () => clearInterval(fadeInterval)
+  }, [])
+
+  const toRad = (deg) => (deg * Math.PI) / 180
 
   return (
     <div className="relative">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">Perception Radar</h3>
-        <span className="text-xs text-white/40">360° Coverage</span>
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-av-success animate-pulse"></span>
+          <span className="text-xs text-white/50">LIVE</span>
+        </div>
       </div>
 
-      <div className="relative w-full aspect-square max-w-[300px] mx-auto">
-        <svg className="w-full h-full" viewBox="0 0 200 200">
-          {/* Radar Rings */}
-          {[1, 2, 3, 4].map((ring) => (
-            <circle
-              key={ring}
-              cx="100"
-              cy="100"
-              r={ring * 22}
-              fill="none"
-              stroke="rgba(6, 182, 212, 0.1)"
-              strokeWidth="1"
-            />
+      <div className="relative w-full aspect-square max-w-[320px] mx-auto">
+        <svg className="w-full h-full" viewBox="0 0 240 240">
+          <defs>
+            <radialGradient id="radarFade" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="rgba(6, 182, 212, 0.05)"/>
+              <stop offset="100%" stopColor="rgba(6, 182, 212, 0)"/>
+            </radialGradient>
+            <linearGradient id="sweepGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="rgba(6, 182, 212, 0.4)"/>
+              <stop offset="100%" stopColor="rgba(6, 182, 212, 0)"/>
+            </linearGradient>
+            <filter id="glow">
+              <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+              <feMerge>
+                <feMergeNode in="coloredBlur"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>
+
+          <circle cx="120" cy="120" r="110" fill="url(#radarFade)" stroke="rgba(6, 182, 212, 0.2)" strokeWidth="1"/>
+
+          {[25, 50, 75, 100].map((dist) => (
+            <g key={dist}>
+              <circle cx="120" cy="120" r={dist} fill="none" stroke="rgba(6, 182, 212, 0.15)" strokeWidth="0.5"/>
+            </g>
           ))}
 
-          {/* Cross Lines */}
-          <line x1="100" y1="10" x2="100" y2="190" stroke="rgba(6, 182, 212, 0.1)" strokeWidth="1"/>
-          <line x1="10" y1="100" x2="190" y2="100" stroke="rgba(6, 182, 212, 0.1)" strokeWidth="1"/>
-
-          {/* Sweep Line */}
-          <motion.line
-            x1="100"
-            y1="100"
-            x2="100"
-            y2="10"
-            stroke="rgba(6, 182, 212, 0.6)"
-            strokeWidth="2"
-            style={{ transformOrigin: '100px 100px' }}
-            animate={{ rotate: 360 }}
-            transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
-          />
-
-          {/* Sweep Gradient */}
-          <motion.path
-            d="M100,100 L100,10 A90,90 0 0,1 190,100 Z"
-            fill="url(#sweepGradient)"
-            style={{ transformOrigin: '100px 100px' }}
-            animate={{ rotate: 360 }}
-            transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
-          />
-
-          {/* Detections */}
-          {detections.map((det) => {
-            const x = 100 + det.distance * Math.cos((det.angle * Math.PI) / 180)
-            const y = 100 + det.distance * Math.sin((det.angle * Math.PI) / 180)
+          {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => {
+            const rad = toRad(angle)
+            const x1 = 120 + Math.cos(rad) * 10
+            const y1 = 120 + Math.sin(rad) * 10
+            const x2 = 120 + Math.cos(rad) * 110
+            const y2 = 120 + Math.sin(rad) * 110
             return (
-              <motion.circle
-                key={det.id}
-                cx={x}
-                cy={y}
-                r="4"
-                fill={det.type === 'threat' ? '#ef4444' : '#22c55e'}
-                initial={{ opacity: 0, scale: 0 }}
-                animate={{ opacity: [0, 1, 0.5], scale: [0, 1.5, 1] }}
-                transition={{ duration: 2 }}
-              />
+              <line key={angle} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(6, 182, 212, 0.2)" strokeWidth="0.5"/>
             )
           })}
 
-          {/* Center Point */}
-          <circle cx="100" cy="100" r="6" fill="#06b6d4"/>
-          <circle cx="100" cy="100" r="3" fill="#ffffff"/>
+          <text x="120" y="8" textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="8">N</text>
+          <text x="120" y="235" textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="8">S</text>
+          <text x="232" y="123" textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="8">E</text>
+          <text x="8" y="123" textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="8">W</text>
 
-          {/* Gradient Definition */}
-          <defs>
-            <linearGradient id="sweepGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="rgba(6, 182, 212, 0.3)"/>
-              <stop offset="100%" stopColor="rgba(6, 182, 212, 0)"/>
-            </linearGradient>
-          </defs>
+          {[25, 50, 75, 100].map((dist) => (
+            <text
+              key={`label-${dist}`}
+              x={120 + dist + 3}
+              y={118}
+              fill="rgba(255,255,255,0.25)"
+              fontSize="6"
+            >{dist}m</text>
+          ))}
+
+          {blips.map((blip) => {
+            const rad = toRad(blip.angle)
+            const x = 120 + Math.cos(rad) * blip.distance
+            const y = 120 + Math.sin(rad) * blip.distance
+            const color = blip.type === 'threat' ? '#ef4444' : '#22c55e'
+            return (
+              <g key={blip.id}>
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={blip.type === 'threat' ? 5 : 3}
+                  fill={color}
+                  opacity={blip.intensity}
+                  filter="url(#glow)"
+                />
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={blip.type === 'threat' ? 8 : 5}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth="0.5"
+                  opacity={blip.intensity * 0.5}
+                />
+              </g>
+            )
+          })}
+
+          <g style={{ transformOrigin: '120px 120px', transform: `rotate(${sweepAngle}deg)` }}>
+            <path
+              d="M120,120 L120,10 A110,110 0 0,1 230,120 Z"
+              fill="url(#sweepGrad)"
+            />
+            <line x1="120" y1="120" x2="120" y2="10" stroke="rgba(6, 182, 212, 0.8)" strokeWidth="1.5"/>
+          </g>
+
+          <circle cx="120" cy="120" r="8" fill="#0a0a0a" stroke="#06b6d4" strokeWidth="2"/>
+          <circle cx="120" cy="120" r="4" fill="#06b6d4"/>
+
+          {blips.filter(b => b.type === 'threat').slice(-3).map((blip, i) => {
+            const rad = toRad(blip.angle)
+            const x = 120 + Math.cos(rad) * blip.distance
+            const y = 120 + Math.sin(rad) * blip.distance
+            return (
+              <motion.circle
+                key={`alert-${blip.id}`}
+                cx={x}
+                cy={y}
+                r="12"
+                fill="none"
+                stroke="#ef4444"
+                strokeWidth="1"
+                initial={{ opacity: 1, scale: 1 }}
+                animate={{ opacity: 0, scale: 1.5 }}
+                transition={{ duration: 1, repeat: Infinity }}
+              />
+            )
+          })}
         </svg>
 
-        {/* Range Labels */}
-        <div className="absolute top-1/2 right-2 -translate-y-1/2 text-[10px] text-white/30">100m</div>
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 text-[10px] text-white/30">N</div>
+        <div className="absolute top-4 left-4 space-y-1">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-av-success"></div>
+            <span className="text-[10px] text-white/50">Object</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-av-danger"></div>
+            <span className="text-[10px] text-white/50">Threat</span>
+          </div>
+        </div>
+
+        <div className="absolute bottom-4 right-4 text-[10px] text-white/30">
+          Range: 100m | Azimuth: 360°
+        </div>
       </div>
 
-      {/* Legend */}
       <div className="flex justify-center gap-6 mt-4">
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full bg-av-success"></div>
@@ -638,6 +721,10 @@ const RadarViz = () => {
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full bg-av-danger"></div>
           <span className="text-xs text-white/50">Threat</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full border border-av-primary"></div>
+          <span className="text-xs text-white/50">Scan</span>
         </div>
       </div>
     </div>
