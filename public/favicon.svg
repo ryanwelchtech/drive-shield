@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#06b6d4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0ea5e9;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- Shield shape -->
+  <path d="M50 8 L85 22 L85 45 C85 68 68 85 50 92 C32 85 15 68 15 45 L15 22 Z"
+        fill="url(#shieldGrad)" opacity="0.9"/>
+  <!-- Car icon inside -->
+  <g fill="#ffffff" filter="url(#glow)">
+    <path d="M35 55 L65 55 L65 62 C65 64 63 66 61 66 L39 66 C37 66 35 64 35 62 Z" opacity="0.9"/>
+    <path d="M38 45 L42 35 L58 35 L62 45 Z" opacity="0.9"/>
+    <circle cx="40" cy="60" r="4" fill="#06b6d4"/>
+    <circle cx="60" cy="60" r="4" fill="#06b6d4"/>
+  </g>
+  <!-- Radar waves -->
+  <g stroke="#22d3ee" fill="none" stroke-width="1.5" opacity="0.6">
+    <path d="M50 30 Q60 35 60 45" />
+    <path d="M50 30 Q40 35 40 45" />
+    <circle cx="50" cy="30" r="3" fill="#22d3ee"/>
+  </g>
+</svg>
