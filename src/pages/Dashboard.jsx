@@ -1,6 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, AreaChart, Area } from 'recharts'
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis } from 'recharts'
+import dataService from '../data/dataService'
+import { prefersReducedMotion } from '../hooks/useOptimizedAnimation'
+
+// Apple UX: Check reduced motion preference once
+const reducedMotion = prefersReducedMotion()
 
 const Dashboard = ({ onBack }) => {
   const [isMonitoring, setIsMonitoring] = useState(true)
@@ -15,59 +20,71 @@ const Dashboard = ({ onBack }) => {
     ultrasonic: { status: 'active', confidence: 99.0 },
   })
   const canvasRef = useRef(null)
+  const streamRef = useRef(null)
+  const lastUpdateRef = useRef(Date.now())
+  const pointsRef = useRef([])
 
-  // Simulate real-time detections
+  // Memoized threat calculations to prevent unnecessary re-renders
+  const threatCounts = useMemo(() => ({
+    adversarialPatch: detections.filter(d => d.threat === 'adversarial_patch').length,
+    phantomObject: detections.filter(d => d.threat === 'phantom_object').length,
+    spoofing: detections.filter(d => d.threat === 'spoofing').length,
+    total: detections.filter(d => d.threat).length,
+  }), [detections])
+
+  const detectionStats = useMemo(() => ({
+    total: detections.length,
+    vehicles: detections.filter(d => d.type === 'vehicle').length,
+    pedestrians: detections.filter(d => d.type === 'pedestrian').length,
+  }), [detections])
+
+  // Apple UX: Throttled confidence update (16ms = 60fps)
+  const updateConfidence = useCallback((newValue) => {
+    const now = Date.now()
+    if (now - lastUpdateRef.current < 16) return
+    lastUpdateRef.current = now
+
+    setCurrentConfidence(newValue)
+    setConfidenceHistory(prev => {
+      const newPoint = { time: prev.length, value: newValue }
+      return [...prev, newPoint].slice(-60)
+    })
+  }, [])
+
+  // Use data service stream for real-time updates
   useEffect(() => {
-    if (!isMonitoring) return
+    if (!isMonitoring) {
+      if (streamRef.current) streamRef.current.close()
+      return
+    }
 
-    const interval = setInterval(() => {
-      // Random detection events
-      if (Math.random() > 0.7) {
-        const types = ['vehicle', 'pedestrian', 'cyclist', 'sign', 'obstacle']
-        const threats = ['none', 'none', 'none', 'adversarial_patch', 'phantom_object', 'spoofing']
-        const type = types[Math.floor(Math.random() * types.length)]
-        const threat = threats[Math.floor(Math.random() * threats.length)]
-
-        const newDetection = {
-          id: Date.now(),
-          type,
-          threat: threat !== 'none' ? threat : null,
-          confidence: 70 + Math.random() * 30,
-          distance: (5 + Math.random() * 95).toFixed(1),
-          bearing: Math.floor(Math.random() * 360),
-          timestamp: new Date().toLocaleTimeString(),
+    streamRef.current = dataService.createSensorStream(
+      (message) => {
+        switch (message.type) {
+          case 'detection':
+            setDetections(prev => [message.data, ...prev.slice(0, 19)])
+            if (message.data.threat) {
+              setThreatLevel(message.data.threat === 'adversarial_patch' ? 'CRITICAL' : 'HIGH')
+              setTimeout(() => setThreatLevel('LOW'), 5000)
+            }
+            break
+          case 'status':
+            setSensorStatus(message.data)
+            break
+          case 'confidence':
+            updateConfidence(message.data.value)
+            break
         }
+      },
+      (error) => console.error('Stream error:', error)
+    )
 
-        setDetections(prev => [newDetection, ...prev.slice(0, 19)])
+    return () => {
+      if (streamRef.current) streamRef.current.close()
+    }
+  }, [isMonitoring, updateConfidence])
 
-        if (threat !== 'none') {
-          setThreatLevel(threat === 'adversarial_patch' ? 'CRITICAL' : 'HIGH')
-          setTimeout(() => setThreatLevel('LOW'), 5000)
-        }
-      }
-
-      // Update confidence
-      setConfidenceHistory(prev => {
-        const noise = (Math.random() - 0.5) * 4
-        const newConf = Math.max(75, Math.min(100, currentConfidence + noise))
-        setCurrentConfidence(newConf)
-
-        return [...prev, { time: prev.length, value: newConf }].slice(-60)
-      })
-
-      // Update sensor status
-      setSensorStatus(prev => ({
-        lidar: { ...prev.lidar, confidence: 95 + Math.random() * 5 },
-        camera: { ...prev.camera, confidence: 90 + Math.random() * 10 },
-        radar: { ...prev.radar, confidence: 94 + Math.random() * 6 },
-        ultrasonic: { ...prev.ultrasonic, confidence: 97 + Math.random() * 3 },
-      }))
-    }, 500)
-
-    return () => clearInterval(interval)
-  }, [isMonitoring, currentConfidence])
-
-  // LIDAR Point Cloud Visualization
+  // LIDAR Point Cloud Visualization - GPU-accelerated Canvas
   useEffect(() => {
     if (!canvasRef.current) return
 
@@ -77,55 +94,72 @@ const Dashboard = ({ onBack }) => {
     const height = canvas.height
 
     let animationId
-    let points = []
 
-    // Generate initial points
-    for (let i = 0; i < 500; i++) {
-      points.push({
-        angle: Math.random() * Math.PI * 2,
-        distance: 20 + Math.random() * 130,
-        z: (Math.random() - 0.5) * 50,
-        intensity: Math.random(),
-      })
+    // Initialize points once (avoid recreation each frame)
+    if (pointsRef.current.length === 0) {
+      for (let i = 0; i < 500; i++) {
+        pointsRef.current.push({
+          angle: Math.random() * Math.PI * 2,
+          distance: 20 + Math.random() * 130,
+          z: (Math.random() - 0.5) * 50,
+          intensity: Math.random(),
+        })
+      }
     }
 
+    const centerX = width / 2
+    const centerY = height / 2
+    const points = pointsRef.current
+
     const render = () => {
+      // Fade effect for trails (more efficient than clearRect)
       ctx.fillStyle = 'rgba(0, 0, 0, 0.1)'
       ctx.fillRect(0, 0, width, height)
 
-      const centerX = width / 2
-      const centerY = height / 2
-
-      // Draw grid
+      // Batch draw grid circles (single beginPath for performance)
       ctx.strokeStyle = 'rgba(6, 182, 212, 0.1)'
       ctx.lineWidth = 1
+      ctx.beginPath()
       for (let r = 30; r <= 150; r += 30) {
-        ctx.beginPath()
+        ctx.moveTo(centerX + r, centerY)
         ctx.arc(centerX, centerY, r, 0, Math.PI * 2)
-        ctx.stroke()
       }
+      ctx.stroke()
 
-      // Draw points
-      points.forEach((point, i) => {
+      // Batch draw all normal points first (reduces state changes)
+      ctx.fillStyle = 'rgba(6, 182, 212, 0.6)'
+      ctx.beginPath()
+      points.forEach((point) => {
         const x = centerX + Math.cos(point.angle) * point.distance
         const y = centerY + Math.sin(point.angle) * point.distance
 
-        // Determine if point is a threat
-        const isThreat = isMonitoring && Math.random() > 0.995
+        ctx.moveTo(x + 2, y)
+        ctx.arc(x, y, 2, 0, Math.PI * 2)
 
-        ctx.beginPath()
-        ctx.arc(x, y, isThreat ? 4 : 2, 0, Math.PI * 2)
-        ctx.fillStyle = isThreat
-          ? 'rgba(239, 68, 68, 0.9)'
-          : `rgba(6, 182, 212, ${0.3 + point.intensity * 0.7})`
-        ctx.fill()
-
-        // Animate points
-        point.angle += 0.002
-        point.distance += (Math.random() - 0.5) * 0.5
-        if (point.distance < 20) point.distance = 20
-        if (point.distance > 150) point.distance = 150
+        // Animate points (minimal calculations)
+        if (isMonitoring) {
+          point.angle += 0.002
+          point.distance += (Math.random() - 0.5) * 0.5
+          if (point.distance < 20) point.distance = 20
+          if (point.distance > 150) point.distance = 150
+        }
       })
+      ctx.fill()
+
+      // Draw threat points separately (fewer draws)
+      if (isMonitoring) {
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.9)'
+        ctx.beginPath()
+        points.forEach((point) => {
+          if (Math.random() > 0.995) {
+            const x = centerX + Math.cos(point.angle) * point.distance
+            const y = centerY + Math.sin(point.angle) * point.distance
+            ctx.moveTo(x + 4, y)
+            ctx.arc(x, y, 4, 0, Math.PI * 2)
+          }
+        })
+        ctx.fill()
+      }
 
       // Draw vehicle in center
       ctx.fillStyle = 'rgba(6, 182, 212, 0.8)'
@@ -133,12 +167,16 @@ const Dashboard = ({ onBack }) => {
       ctx.fillStyle = 'rgba(6, 182, 212, 0.5)'
       ctx.fillRect(centerX - 5, centerY - 20, 10, 8)
 
-      animationId = requestAnimationFrame(render)
+      if (isMonitoring && !reducedMotion) {
+        animationId = requestAnimationFrame(render)
+      }
     }
 
     render()
 
-    return () => cancelAnimationFrame(animationId)
+    return () => {
+      if (animationId) cancelAnimationFrame(animationId)
+    }
   }, [isMonitoring])
 
   const getThreatColor = (level) => {
@@ -226,12 +264,12 @@ const Dashboard = ({ onBack }) => {
                       <div className={`w-3 h-3 rounded-full ${data.status === 'active' ? 'bg-av-success animate-pulse' : 'bg-av-danger'}`}></div>
                       <span className="text-sm text-white capitalize">{sensor}</span>
                     </div>
-                    <span className="text-sm font-mono text-av-primary">{data.confidence.toFixed(1)}%</span>
+                    <span className="text-sm font-mono text-av-primary">{data.confidence?.toFixed(1)}%</span>
                   </div>
                   <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                     <motion.div
                       className="h-full bg-gradient-to-r from-av-primary to-av-accent rounded-full"
-                      animate={{ width: `${data.confidence}%` }}
+                      animate={{ width: `${data.confidence || 0}%` }}
                       transition={{ duration: 0.3 }}
                     />
                   </div>
@@ -240,43 +278,37 @@ const Dashboard = ({ onBack }) => {
             </div>
           </div>
 
-          {/* Detection Stats */}
+          {/* Detection Stats - Memoized values */}
           <div className="glass-panel p-6">
             <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">Detection Stats</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 rounded-xl bg-white/5 text-center">
-                <p className="text-2xl font-bold text-av-primary">{detections.length}</p>
+                <p className="text-2xl font-bold text-av-primary">{detectionStats.total}</p>
                 <p className="text-xs text-white/50">Total Objects</p>
               </div>
               <div className="p-4 rounded-xl bg-white/5 text-center">
-                <p className="text-2xl font-bold text-av-danger">
-                  {detections.filter(d => d.threat).length}
-                </p>
+                <p className="text-2xl font-bold text-av-danger">{threatCounts.total}</p>
                 <p className="text-xs text-white/50">Threats</p>
               </div>
               <div className="p-4 rounded-xl bg-white/5 text-center">
-                <p className="text-2xl font-bold text-av-success">
-                  {detections.filter(d => d.type === 'vehicle').length}
-                </p>
+                <p className="text-2xl font-bold text-av-success">{detectionStats.vehicles}</p>
                 <p className="text-xs text-white/50">Vehicles</p>
               </div>
               <div className="p-4 rounded-xl bg-white/5 text-center">
-                <p className="text-2xl font-bold text-av-warning">
-                  {detections.filter(d => d.type === 'pedestrian').length}
-                </p>
+                <p className="text-2xl font-bold text-av-warning">{detectionStats.pedestrians}</p>
                 <p className="text-xs text-white/50">Pedestrians</p>
               </div>
             </div>
           </div>
 
-          {/* Threat Types */}
+          {/* Threat Types - Memoized values */}
           <div className="glass-panel p-6">
             <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">Active Threats</h3>
             <div className="space-y-2">
               {[
-                { name: 'Adversarial Patches', count: detections.filter(d => d.threat === 'adversarial_patch').length, color: 'bg-av-danger' },
-                { name: 'Phantom Objects', count: detections.filter(d => d.threat === 'phantom_object').length, color: 'bg-av-warning' },
-                { name: 'Sensor Spoofing', count: detections.filter(d => d.threat === 'spoofing').length, color: 'bg-av-purple' },
+                { name: 'Adversarial Patches', count: threatCounts.adversarialPatch, color: 'bg-av-danger' },
+                { name: 'Phantom Objects', count: threatCounts.phantomObject, color: 'bg-av-warning' },
+                { name: 'Sensor Spoofing', count: threatCounts.spoofing, color: 'bg-av-purple' },
               ].map((threat) => (
                 <div key={threat.name} className="flex items-center justify-between p-3 rounded-xl bg-white/5">
                   <div className="flex items-center gap-2">
@@ -351,6 +383,7 @@ const Dashboard = ({ onBack }) => {
                     stroke="#06b6d4"
                     strokeWidth={2}
                     fill="url(#confGradient)"
+                    isAnimationActive={!reducedMotion}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -379,7 +412,7 @@ const Dashboard = ({ onBack }) => {
                   <motion.div
                     className="absolute border-2 border-av-success rounded"
                     style={{ left: '30%', top: '40%', width: '40px', height: '30px' }}
-                    animate={{ opacity: [0.5, 1, 0.5] }}
+                    animate={{ opacity: reducedMotion ? 1 : [0.5, 1, 0.5] }}
                     transition={{ duration: 1, repeat: Infinity }}
                   >
                     <span className="absolute -top-5 left-0 text-[10px] text-av-success bg-black/50 px-1 rounded">CAR 94%</span>
@@ -387,7 +420,7 @@ const Dashboard = ({ onBack }) => {
                   <motion.div
                     className="absolute border-2 border-av-warning rounded"
                     style={{ right: '25%', top: '45%', width: '20px', height: '35px' }}
-                    animate={{ opacity: [0.5, 1, 0.5] }}
+                    animate={{ opacity: reducedMotion ? 1 : [0.5, 1, 0.5] }}
                     transition={{ duration: 1.2, repeat: Infinity }}
                   >
                     <span className="absolute -top-5 left-0 text-[10px] text-av-warning bg-black/50 px-1 rounded">PED 87%</span>
@@ -421,7 +454,9 @@ const Dashboard = ({ onBack }) => {
                     <span className={`font-medium capitalize ${det.threat ? 'text-av-danger' : 'text-white'}`}>
                       {det.type}
                     </span>
-                    <span className="text-white/40">{det.timestamp}</span>
+                    <span className="text-white/40">
+                      {new Date(det.timestamp).toLocaleTimeString()}
+                    </span>
                   </div>
                   <div className="flex items-center gap-3 text-white/50">
                     <span>{det.distance}m</span>
