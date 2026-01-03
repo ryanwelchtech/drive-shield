@@ -637,15 +637,10 @@ const Dashboard = ({ onBack }) => {
                         v.type === 'truck' ? 'bg-gray-700' :
                         v.type === 'suv' ? 'bg-gray-600' : 'bg-gray-500'
                       }`}
-                      style={{
-                        boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
-                      }}
+                      style={{ boxShadow: '0 4px 15px rgba(0,0,0,0.5)' }}
                     >
-                      {/* Windshield */}
                       <div className="absolute top-[10%] left-[15%] right-[15%] h-[25%] bg-gray-800 rounded-t-sm"/>
-                      {/* Rear window */}
                       <div className="absolute bottom-[5%] left-[20%] right-[20%] h-[15%] bg-gray-800 rounded-b-sm"/>
-                      {/* Headlights/taillights based on distance */}
                       {isAhead ? (
                         <div className="absolute top-[10%] left-[5%] right-[5%] flex justify-between">
                           <div className="w-2 h-1 bg-yellow-400 rounded-full"/>
