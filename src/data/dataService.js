@@ -33,8 +33,15 @@
  */
 
 // Configuration
+let apiUrl = import.meta.env.VITE_API_URL || '/api'
+
+if (apiUrl.startsWith('http://localhost') || apiUrl.startsWith('http://127.0.0.1')) {
+  apiUrl = '/api'
+  console.warn('[DataService] WARNING: localhost API URL detected, using relative path /api instead')
+}
+
 const CONFIG = {
-  API_BASE_URL: import.meta.env.VITE_API_URL || '/api',
+  API_BASE_URL: apiUrl,
   USE_MOCK: import.meta.env.VITE_USE_MOCK === 'true',
   CACHE_TTL: 1000,
   POLL_INTERVAL: 800,
